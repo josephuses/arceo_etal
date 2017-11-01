@@ -1,0 +1,166 @@
+---
+title: "Statistical Computations"
+author: "Joseph S. Tabadero, Jr."
+date: "November 1, 2017"
+output:
+  html_document: 
+    theme: paper
+    highlight: kate
+    toc: true
+    toc_float: true
+    code_folding: hide
+  pdf_document: 
+    latex_engine: xelatex
+    highlight: kate
+  word_document: 
+    highlight: kate
+bibliography: bibliography.bib
+csl: apa.csl
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE, message = FALSE, warning=FALSE, fig.height = 4, fig.width = 5, fig.align = 'center', cache = TRUE)
+```
+
+## Import Datasets
+
+```{r}
+library(tidyverse)
+theme_set(theme_bw())
+```
+
+I have stored the data sets in the `data` folder.
+
+```{r}
+# import the data
+banana <- read.table("./data/banana.txt", header=TRUE, sep="")
+papaya <- read.table("./data/papaya.txt", header=TRUE, sep="")
+pineapple <- read.table("./data/pineapple.txt", header=TRUE, sep="")
+# create a function to conver the data from wide format to long format
+to_long <- function(data){
+    data %>% gather(., Cell, Voltage, -Day)
+}
+# convert to long format
+banana <- to_long(banana)
+papaya <- to_long(papaya)
+pineapple <- to_long(pineapple)
+# create a variable fruit
+banana$fruit <- "banana"
+papaya$fruit <- "papaya"
+pineapple$fruit <- "pineapple"
+# combine all data
+data <- rbind(banana, papaya, pineapple)
+# remove the "cell" from the cell number names
+data <- data %>%
+  mutate(
+    Day = as.integer(Day),
+    Cell = as.integer(str_replace_all(Cell, "cell", "")),
+    Voltage = as.numeric(str_replace_all(Voltage, "V", ""))
+  )
+data %>% DT::datatable()
+```
+
+## Exploratory Data Analysis {.tabset .tabset-fade .tabset-pills}
+
+### Get mean by fruit and day
+
+```{r}
+means <- data %>% group_by(Day, fruit) %>%
+  summarise(Voltage = mean(Voltage))
+means
+```
+
+### Get the boxplots of voltage outputs by type of fruit peelings
+
+```{r}
+ggplot(data, aes(x = fruit, y = Voltage)) + 
+  geom_boxplot()
+```
+
+Here, it seems to be that the voltage outputs for banana and papaya do not seem to differ by much. On the other hand, the boxplots seem to suggest that voltage outputs for pineapple peelings are greater than that of the other two types of peelings.
+
+
+### Get the plot of the voltages over 7 days for each type of fruit
+
+
+
+```{r}
+ggplot(data, aes(Day, Voltage, group = as.factor(Cell), color = fruit)) +
+  geom_line() + 
+  theme(legend.title = element_blank())
+```
+
+
+### Get the plot of the mean of the voltages over 7 days for each type of fruit
+
+```{r}
+ggplot(means, aes(Day, Voltage, color = fruit)) + 
+  geom_line() + ylab("Mean Voltage") + 
+  theme(legend.title = element_blank())
+```
+
+The line graphs suggest that voltage output increases directly proportional as the number of days.
+
+## Analysis of variance for repeated measures design
+
+Your data set contains the following:
+
+* Cell = blocking factor (random factor, since the effect each cell may contribute to the voltage is random)
+* Day = within subject or repeated measures factor (fixed factor)
+* fruit = the treatment, which is a between subject factor (fixed factor)
+* Voltage = measured (dependent) variable
+
+A one-way analysis of variance will not work here, nor will a randomized complete block design ANOVA will work, because the assumption of independence of observations is violated. This assumption is violated because observations are taken from the same cells over time, and are therefore dependent on the cells.
+
+To model the variation in the voltage outputs, we can use both fixed effects and random effects factors in the data set. The model is called a **linear mixed effects model**. You can learn more about linear mixed effects model from the following links:
+
+* http://www.bodowinter.com/tutorial/bw_LME_tutorial2.pdf
+* https://wiki.bcs.rochester.edu/HlpLab/StatsCourses?action=AttachFile&do=get&target=Groningen11.pdf
+* https://arxiv.org/ftp/arxiv/papers/1308/1308.5499.pdf
+* http://www.theanalysisfactor.com/repeated-measures-approaches/
+
+Based on your study, what we want to model are the following:
+* There might be interactions between time (Day) and treatment (fruit), that is, we may allow the effect of Day to vary between type of fruit peeling (fruit)
+* We will allow change over time to differ across participants (i.e., to explicitly model differences in voltage changes among cells over time). Because of this, we will also allow the effect of Day to be *random*.
+
+With these considerations, our model can be written as:
+
+`Voltage ~ Day + fruit + Day:fruit + (Day|Cell)`
+
+The analysis will be carried in R [@rcore], using the `lmerTest` [@lmerTest] package for modeling linear mixed effects. Post-hoc analysis will be conducted with the help of the R package `multcomp` [@multcomp].
+
+```{r}
+library(lmerTest)
+mod <- lmer(Voltage ~ fruit*Day + (Day|Cell), data)
+anova(mod) 
+```
+
+From the linear mixed effects model ANOVA table, we can see that the interaction of the type of fruit peeling and time does not affect the voltage output (\(F(2,6)=2,p=0.2178\)). We can therefore interpret the effects of the type of fruit peelings and Day individually without worrying about their possible interactions. Here, we are primarily interested with the effect of type of fruit peelings. We can see that the voltage outputs differ between types of fruit peelings (\(F(2,6)=16, p=0.0037\)) at the 0.05 significance level. 
+
+To see which of the types of fruit peelings differ, we conduct a post-hoc analysis using a paired-t test with Bonferroni-Holm with multiple-comparisons adjustment using the `multcomp` package.
+
+```{r}
+library(multcomp)
+summary(glht(mod, linfct = mcp(fruit = "Tukey")), test = adjusted("BH"))
+```
+
+There is no difference in voltage outputs between papaya and banana peelings (\(p=0.73\)). On the other hand, the differences in voltage outputs between pineapple and banana and pineapple and papaya are very extreme that they could not be due to chance alone (\(p<0.0001\) in both cases).
+
+## Addendum
+
+Your objectives do not include the effect of the time on the voltage output. However, the ANOVA table suggests that the number of days affect the voltage output significantly (\(F(1,6)=1334, p<0.0001 \)). If you want to include the effect of the days in your objective, then we can see the coefficient due to Day.
+
+```{r}
+summary(mod)
+```
+
+From this output, you can see that a day contributes about 0.145V (\(\pm 0.007\)) of voltage. However, your data has very few observations to determine when you will have achieved the maximum voltage output.
+
+Furthermore, your sample is still small in order to say that the differences we have measured in this study are definitive. (You would need about 200 observations per type of peeling in order to achieve a power of 0.8 at .05 significance level.) This study is, therefore, more of an initial investigation type.
+
+## Reminders about the tables
+
+* Re-write the outputz of ANOVA and the post-hoc analysis as nice-looking tables that are properly captioned.
+* If in doubt, ask your adviser about the formatting.
+
+## References

@@ -1,0 +1,18 @@
+---
+title: "Statistical Computations"
+author: "Joseph S. Tabadero, Jr."
+date: "November 1, 2017"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+## Import Datasets
+
+```{r}
+banana <- read.table("./data/banana.txt", header=TRUE, sep="")
+papaya <- read.table("./data/papaya.txt", header=TRUE, sep="")
+```
+
